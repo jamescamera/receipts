@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1f6feb">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Receipts">
+  <title>Trip Receipts</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <button id="backBtn" class="icon-btn" aria-label="Back" hidden>&#8592;</button>
+    <h1 id="title">Trips</h1>
+    <button id="menuBtn" class="icon-btn" aria-label="Menu">&#8942;</button>
+  </header>
+
+  <div id="menu" class="menu" hidden>
+    <button data-action="backup">Back up all data (JSON)</button>
+    <button data-action="restore">Restore from backup</button>
+    <input id="restoreInput" type="file" accept="application/json" hidden>
+  </div>
+
+  <main id="view"></main>
+
+  <button id="fab" class="fab" aria-label="Add">+</button>
+
+  <dialog id="dialog"></dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
