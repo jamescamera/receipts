@@ -20,6 +20,7 @@
   </header>
 
   <div id="menu" class="menu" hidden>
+    <button data-action="scan-settings">Receipt reading settings</button>
     <button data-action="backup">Back up all data (JSON)</button>
     <button data-action="restore">Restore from backup</button>
     <input id="restoreInput" type="file" accept="application/json" hidden>
@@ -30,7 +31,9 @@
   <button id="fab" class="fab" aria-label="Add">+</button>
 
   <dialog id="dialog"></dialog>
+  <input id="scanInput" type="file" accept="image/*" multiple hidden>
 
   <script src="app.js"></script>
+  <script src="scan.js"></script>
 </body>
 </html>

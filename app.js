@@ -280,6 +280,7 @@ async function renderTrip(id) {
     </div>
 
     <div class="actions">
+      <button class="btn primary" data-act="scan">📸 Scan receipts</button>
       <button class="btn" data-act="edit">✏️ Edit trip</button>
       <button class="btn" data-act="csv" ${receipts.length ? '' : 'disabled'}>⬇️ Export CSV</button>
       <button class="btn" data-act="report" ${receipts.length ? '' : 'disabled'}>🖨️ Report / PDF</button>
@@ -296,7 +297,8 @@ async function renderTrip(id) {
       ${receipts.length ? '' : `
         <div class="empty">
           <div class="big">🧾</div>
-          <p>No receipts yet. Tap <strong>+</strong> to add one — you can take a photo right away.</p>
+          <p>No receipts yet. Tap <strong>📸 Scan receipts</strong> to read them from photos (several at once is fine),
+          or <strong>+</strong> to add one by hand.</p>
         </div>`}
     </div>`;
 
@@ -329,6 +331,7 @@ async function renderTrip(id) {
   }
 
   view.querySelectorAll('[data-filter]').forEach(b => b.onclick = () => { state.filter = b.dataset.filter; render(); });
+  $('[data-act=scan]').onclick = () => startScan(trip);
   $('[data-act=edit]').onclick = () => tripDialog(trip);
   $('[data-act=csv]').onclick = () => exportCSV(trip, receipts);
   $('[data-act=report]').onclick = () => printReport(trip, receipts);
@@ -361,7 +364,9 @@ function receiptDialog(trip, receipt) {
       <div style="text-align:center;margin-top:6px">
         <button type="button" class="btn" id="pickFile" style="font-size:.85rem;padding:6px 10px">Choose from gallery / files</button>
         <button type="button" class="btn danger" id="removePhoto" style="font-size:.85rem;padding:6px 10px" hidden>Remove photo</button>
+        <button type="button" class="btn" id="readPhoto" style="font-size:.85rem;padding:6px 10px" hidden>✨ Fill from photo</button>
       </div>
+      <p id="scanStatus" class="muted" style="text-align:center;margin:6px 0 0"></p>
 
       <label>Category</label>
       <div class="cat-picker">
@@ -376,7 +381,10 @@ function receiptDialog(trip, receipt) {
       </div>
       <div id="homeRow" ${r.currency === trip.currency ? 'hidden' : ''}>
         <label>Amount in ${esc(trip.currency)} (from your card statement or an exchange rate)</label>
-        <input name="homeAmount" type="number" inputmode="decimal" step="0.01" min="0" value="${r.currency !== trip.currency && r.homeAmount != null ? r.homeAmount : ''}">
+        <div class="row">
+          <input name="homeAmount" type="number" inputmode="decimal" step="0.01" min="0" value="${r.currency !== trip.currency && r.homeAmount != null ? r.homeAmount : ''}">
+          <button type="button" class="btn narrow" id="rateBtn" style="flex-basis:auto">Use rate</button>
+        </div>
       </div>
 
       <div class="row">
@@ -412,8 +420,13 @@ function receiptDialog(trip, receipt) {
   const preview = $('#photoPreview');
   const photoLabel = $('#photoLabel');
   const removeBtn = $('#removePhoto');
+  const readBtn = $('#readPhoto');
+  const scanStatus = $('#scanStatus');
+  let currentPhoto = null;
 
   function showPhoto(blob) {
+    currentPhoto = blob;
+    readBtn.hidden = !blob || !blob.type.startsWith('image/') || !getApiKey();
     if (!blob) {
       preview.innerHTML = '';
       photoLabel.textContent = '📷 Take photo or choose file';
@@ -437,10 +450,28 @@ function receiptDialog(trip, receipt) {
     newPhoto = await compressImage(file);
     removePhoto = false;
     showPhoto(newPhoto);
+    // New receipt with an empty amount: read it straight away.
+    if (!receipt && !form.amount.value && newPhoto.type.startsWith('image/')) fillFormFromPhoto(form, newPhoto, trip, scanStatus);
   };
+  readBtn.onclick = () => currentPhoto && fillFormFromPhoto(form, currentPhoto, trip, scanStatus);
   removeBtn.onclick = () => { newPhoto = null; removePhoto = true; showPhoto(null); };
 
-  form.currency.onchange = () => { $('#homeRow').hidden = form.currency.value === trip.currency; };
+  async function lookupRate(onlyIfEmpty) {
+    if (form.currency.value === trip.currency || !form.amount.value) return;
+    if (onlyIfEmpty && form.homeAmount.value) return;
+    try {
+      form.homeAmount.value = await convert(parseFloat(form.amount.value), form.currency.value, trip.currency, form.date.value);
+    } catch (err) {
+      if (!onlyIfEmpty) alert(err.message);
+    }
+  }
+  form.currency.onchange = () => {
+    $('#homeRow').hidden = form.currency.value === trip.currency;
+    form.homeAmount.value = '';
+    lookupRate(true);
+  };
+  form.amount.addEventListener('change', () => lookupRate(true));
+  $('#rateBtn').onclick = () => lookupRate(false);
   form.payment.onchange = () => { $('#reimbRow').hidden = form.payment.value !== 'personal'; };
 
   // Suggest merchants used before.
@@ -585,6 +616,8 @@ const menu = $('#menu');
 $('#menuBtn').onclick = (e) => { e.stopPropagation(); menu.hidden = !menu.hidden; };
 document.addEventListener('click', () => { menu.hidden = true; });
 menu.onclick = (e) => e.stopPropagation();
+
+menu.querySelector('[data-action=scan-settings]').onclick = () => { menu.hidden = true; scanSettingsDialog(); };
 
 menu.querySelector('[data-action=backup]').onclick = async () => {
   menu.hidden = true;
