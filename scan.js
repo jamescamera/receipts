@@ -329,6 +329,7 @@ async function reviewDialog(trip, found, errors) {
   $('form', dialog).onsubmit = async (e) => {
     e.preventDefault();
     let saved = 0;
+    const myte = await defaultMyte(trip.id);
     for (const el of items) {
       if (!el.querySelector('[name=keep]').checked) continue;
       const r = found[+el.dataset.i];
@@ -344,6 +345,7 @@ async function reviewDialog(trip, found, errors) {
         amount, currency,
         homeAmount: currency === trip.currency ? amount : (isNaN(h) ? null : h),
         payment: v('payment'), reimbursed: false, notes: v('notes').trim(), photoId,
+        myte: v('category') === 'food' && (myte.client || myte.external || myte.attendees) ? myte : null,
       });
       saved++;
     }

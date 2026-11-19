@@ -125,15 +125,21 @@ const dialog = $('#dialog');
 let state = { tripId: null, filter: 'all' };
 
 function route() {
-  const m = location.hash.match(/^#\/trip\/(.+)$/);
+  const m = location.hash.match(/^#\/trip\/([^/]+)(\/myte)?$/);
   state.tripId = m ? decodeURIComponent(m[1]) : null;
+  state.page = m && m[2] ? 'myte' : 'trip';
   render();
 }
 window.addEventListener('hashchange', () => { state.filter = 'all'; route(); });
-backBtn.onclick = () => { location.hash = '#/'; };
+backBtn.onclick = () => {
+  location.hash = state.page === 'myte' ? '#/trip/' + encodeURIComponent(state.tripId) : '#/';
+};
 
 async function render() {
   releaseUrls();
+  fab.hidden = false;
+  view.classList.remove('wide');
+  if (state.tripId && state.page === 'myte') return renderMyte(state.tripId);
   if (state.tripId) return renderTrip(state.tripId);
   return renderTrips();
 }
@@ -281,6 +287,8 @@ async function renderTrip(id) {
 
     <div class="actions">
       <button class="btn primary" data-act="scan">📸 Scan receipts</button>
+      <button class="btn" data-act="myte" ${receipts.length ? '' : 'disabled'}>🧾 myTE helper</button>
+      <button class="btn" data-act="send" ${receipts.length ? '' : 'disabled'}>💻 Send to laptop</button>
       <button class="btn" data-act="edit">✏️ Edit trip</button>
       <button class="btn" data-act="csv" ${receipts.length ? '' : 'disabled'}>⬇️ Export CSV</button>
       <button class="btn" data-act="report" ${receipts.length ? '' : 'disabled'}>🖨️ Report / PDF</button>
@@ -333,6 +341,8 @@ async function renderTrip(id) {
   view.querySelectorAll('[data-filter]').forEach(b => b.onclick = () => { state.filter = b.dataset.filter; render(); });
   $('[data-act=scan]').onclick = () => startScan(trip);
   $('[data-act=edit]').onclick = () => tripDialog(trip);
+  $('[data-act=myte]').onclick = () => { location.hash = '#/trip/' + encodeURIComponent(trip.id) + '/myte'; };
+  $('[data-act=send]').onclick = () => sendTrip(trip, receipts);
   $('[data-act=csv]').onclick = () => exportCSV(trip, receipts);
   $('[data-act=report]').onclick = () => printReport(trip, receipts);
   $('[data-act=photos]').onclick = () => savePhotos(trip, receipts);
@@ -344,8 +354,9 @@ function receiptDialog(trip, receipt) {
   const r = receipt || {
     id: uid(), tripId: trip.id, date: today(), merchant: '', category: 'food',
     amount: null, currency: trip.currency, homeAmount: null, payment: 'company',
-    reimbursed: false, notes: '', photoId: null, createdAt: Date.now(),
+    reimbursed: false, notes: '', photoId: null, createdAt: Date.now(), myte: null,
   };
+  const m = r.myte || {};
   // Keep the date inside the trip if "today" falls outside it.
   if (!receipt && trip.start && r.date < trip.start) r.date = trip.start;
 
@@ -403,6 +414,26 @@ function receiptDialog(trip, receipt) {
 
       <label>Notes (who / why)</label>
       <textarea name="notes" placeholder="e.g. Dinner with client team (4 people)">${esc(r.notes)}</textarea>
+
+      <details class="myte-box" ${r.myte ? 'open' : ''}>
+        <summary>myTE details <span class="muted">(optional, for copying into myTE)</span></summary>
+        <div id="mealRow" ${r.category === 'food' ? '' : 'hidden'}>
+          <label>Type of meal</label>
+          <input name="mealType" list="dl-mealType" value="${esc(m.mealType)}" placeholder="e.g. Team Snacks, Dinner">
+        </div>
+        <label>Reason / description</label>
+        <input name="reason" list="dl-reason" value="${esc(m.reason)}" placeholder="e.g. Coffee for Málaga shoot crew">
+        <div class="food-only" ${r.category === 'food' ? '' : 'hidden'}>
+          <div class="row">
+            <div class="narrow"><label>Attendees</label><input name="attendees" type="number" inputmode="numeric" min="1" value="${m.attendees ?? ''}"></div>
+            <div><label>Client name</label><input name="client" list="dl-client" value="${esc(m.client)}"></div>
+          </div>
+          <label>External attendees</label>
+          <input name="external" list="dl-external" value="${esc(m.external)}" placeholder="Name, Company; Name, Company">
+        </div>
+        <datalist id="dl-mealType"></datalist><datalist id="dl-reason"></datalist>
+        <datalist id="dl-client"></datalist><datalist id="dl-external"></datalist>
+      </details>
 
       <label class="check" id="reimbRow" ${r.payment === 'personal' ? '' : 'hidden'}>
         <input type="checkbox" name="reimbursed" ${r.reimbursed ? 'checked' : ''}> Already reimbursed
@@ -473,6 +504,20 @@ function receiptDialog(trip, receipt) {
   form.amount.addEventListener('change', () => lookupRate(true));
   $('#rateBtn').onclick = () => lookupRate(false);
   form.payment.onchange = () => { $('#reimbRow').hidden = form.payment.value !== 'personal'; };
+  form.querySelectorAll('input[name=category]').forEach(el => el.onchange = () => {
+    const food = form.category.value === 'food';
+    $('#mealRow').hidden = !food;
+    form.querySelector('.food-only').hidden = !food;
+  });
+  myteSuggestions().then(sug => {
+    for (const k of Object.keys(sug)) $('#dl-' + k).innerHTML = sug[k].map(v => `<option value="${esc(v)}">`).join('');
+  });
+  // New receipt: reuse the client and attendees from the last one in this trip.
+  if (!receipt) defaultMyte(trip.id).then(d => {
+    if (!form.client.value) form.client.value = d.client;
+    if (!form.external.value) form.external.value = d.external;
+    if (!form.attendees.value && d.attendees) form.attendees.value = d.attendees;
+  });
 
   // Suggest merchants used before.
   getAll('receipts').then(all => {
@@ -517,6 +562,7 @@ function receiptDialog(trip, receipt) {
       merchant: f.get('merchant').trim(),
       notes: f.get('notes').trim(),
       photoId,
+      myte: readMyte(f),
     });
     dialog.close();
     render();
@@ -525,12 +571,23 @@ function receiptDialog(trip, receipt) {
   dialog.showModal();
 }
 
+function readMyte(f) {
+  const v = (k) => (f.get(k) || '').trim();
+  const food = f.get('category') === 'food';
+  const out = {
+    mealType: food ? v('mealType') : '', reason: v('reason'),
+    attendees: food ? parseInt(v('attendees')) || null : null,
+    client: food ? v('client') : '', external: food ? v('external') : '',
+  };
+  return Object.values(out).some(Boolean) ? out : null;
+}
+
 /* ---------- Export ---------- */
 
 const safeName = (s) => s.replace(/[^\w\-]+/g, '_').replace(/^_|_$/g, '') || 'trip';
 
 function exportCSV(trip, receipts) {
-  const rows = [['Date', 'Merchant', 'Category', 'Amount', 'Currency', `Amount (${trip.currency})`, 'Paid with', 'Reimbursed', 'Notes', 'Has photo']];
+  const rows = [['Date', 'Merchant', 'Category', 'Amount', 'Currency', `Amount (${trip.currency})`, 'Paid with', 'Reimbursed', 'Notes', 'Has photo', 'Type of meal', 'Reason', 'Attendees', 'External attendees', 'Client']];
   for (const r of [...receipts].sort((a, b) => a.date.localeCompare(b.date))) {
     rows.push([
       r.date, r.merchant, (CAT[r.category] || CAT.other).name,
@@ -538,6 +595,7 @@ function exportCSV(trip, receipts) {
       r.payment === 'personal' ? 'Personal' : 'Company card',
       r.payment === 'personal' ? (r.reimbursed ? 'Yes' : 'No') : '',
       r.notes, r.photoId ? 'Yes' : 'No',
+      r.myte?.mealType, r.myte?.reason, r.myte?.attendees, r.myte?.external, r.myte?.client,
     ]);
   }
   rows.push([]);
@@ -619,34 +677,77 @@ menu.onclick = (e) => e.stopPropagation();
 
 menu.querySelector('[data-action=scan-settings]').onclick = () => { menu.hidden = true; scanSettingsDialog(); };
 
+async function buildBackup(trips, receipts) {
+  const photos = [];
+  for (const r of receipts) {
+    const p = r.photoId && await get('photos', r.photoId);
+    if (p) photos.push({ id: p.id, data: await blobToDataURL(p.blob) });
+  }
+  return JSON.stringify({ app: 'trip-receipts', version: 1, exportedAt: new Date().toISOString(), trips, receipts, photos });
+}
+
 menu.querySelector('[data-action=backup]').onclick = async () => {
   menu.hidden = true;
-  const [trips, receipts, photos] = await Promise.all([getAll('trips'), getAll('receipts'), getAll('photos')]);
-  const photoData = [];
-  for (const p of photos) photoData.push({ id: p.id, data: await blobToDataURL(p.blob) });
-  const json = JSON.stringify({ app: 'trip-receipts', version: 1, exportedAt: new Date().toISOString(), trips, receipts, photos: photoData });
-  download(`receipts-backup-${today()}.json`, json, 'application/json');
+  const [trips, receipts] = await Promise.all([getAll('trips'), getAll('receipts')]);
+  download(`receipts-backup-${today()}.json`, await buildBackup(trips, receipts), 'application/json');
 };
+
+// One trip as a file you can send to yourself (email, OneDrive, Teams) and open on the laptop.
+async function sendTrip(trip, receipts) {
+  const json = await buildBackup([trip], receipts);
+  const name = `${safeName(trip.name)}_trip-receipts.json`;
+  for (const type of ['application/json', 'text/plain']) {
+    const file = new File([json], name, { type });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: `${trip.name} receipts` }); return; }
+      catch (e) { if (e.name === 'AbortError') return; }
+    }
+  }
+  download(name, json, 'application/json');
+  alert('Saved ' + name + '.\n\nSend it to yourself, then on the laptop drag it onto this app (or ⋮ → Restore from backup).');
+}
 
 const restoreInput = $('#restoreInput');
 menu.querySelector('[data-action=restore]').onclick = () => { menu.hidden = true; restoreInput.click(); };
-restoreInput.onchange = async () => {
+restoreInput.onchange = () => {
   const file = restoreInput.files[0];
   restoreInput.value = '';
-  if (!file) return;
+  if (file) restoreFile(file);
+};
+
+async function restoreFile(file) {
   try {
     const data = JSON.parse(await file.text());
     if (data.app !== 'trip-receipts') throw new Error('Not a Trip Receipts backup file.');
-    if (!confirm(`Restore ${data.trips.length} trip(s) and ${data.receipts.length} receipt(s)? Existing items with the same ID will be overwritten; others are kept.`)) return;
-    for (const t of data.trips) await put('trips', t);
-    for (const r of data.receipts) await put('receipts', r);
+    if (!confirm(`Load ${data.trips.length} trip(s) and ${data.receipts.length} receipt(s)? Newer copies replace older ones; nothing else is removed.`)) return;
+    for (const t of data.trips) {
+      const old = await get('trips', t.id);
+      // Keep Amex lines loaded on this device (the phone copy won't have them).
+      await put('trips', { ...t, amex: t.amex || old?.amex, amexLinks: t.amexLinks || old?.amexLinks });
+    }
+    for (const r of data.receipts) {
+      const old = await get('receipts', r.id);
+      await put('receipts', { ...r, myte: r.myte || old?.myte || null });
+    }
     for (const p of data.photos) await put('photos', { id: p.id, blob: await dataURLToBlob(p.data) });
-    alert('Restore complete.');
+    if (data.trips.length === 1) location.hash = '#/trip/' + encodeURIComponent(data.trips[0].id);
     render();
   } catch (err) {
-    alert('Could not restore: ' + err.message);
+    alert('Could not load that file: ' + err.message);
   }
-};
+}
+
+// Drag a trip file onto the app to load it; on the myTE page, drag the Amex export onto it.
+document.addEventListener('dragover', (e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); });
+document.addEventListener('drop', async (e) => {
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  if (/\.json$/i.test(file.name)) { e.preventDefault(); return restoreFile(file); }
+  if (state.page === 'myte' && /\.(xlsx|xls|xlsm|csv|tsv|ods|txt)$/i.test(file.name)) {
+    e.preventDefault();
+    importAmexFile(await get('trips', state.tripId), file);
+  }
+});
 
 /* ---------- Boot ---------- */
 

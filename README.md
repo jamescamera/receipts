@@ -20,6 +20,14 @@ A simple phone-friendly app for tracking work receipts on business trips.
   - Printable report with every receipt photo (use "Save as PDF" in the print dialog)
   - Save/share all receipt photos at once (uses the phone's share sheet)
 - **Backup / restore** everything as a JSON file (⋮ menu).
+- **💻 Send to laptop**: shares one trip as a file (email / OneDrive / Teams it to yourself), then drag
+  that file onto the app on your laptop to load it.
+- **🧾 myTE helper** (Accenture expenses): load the Amex Import Wizard's Export file (or paste its rows) and
+  each card line is matched to its receipt by date, amount and merchant. For every line you get the
+  receipt photo to drag into myTE's upload box (or download) and one-click copy buttons for the
+  place name, date, amount, type of meal, reason, attendees and client. Lines with no receipt, and
+  receipts that weren't on the card, are listed separately. Add the myTE details on any receipt
+  under "myTE details"; client and attendees carry over from your last receipt in the trip.
 - Works offline and can be installed on your home screen.
 
 All data stays **on your device** (in the browser's IndexedDB). The only things sent anywhere are
